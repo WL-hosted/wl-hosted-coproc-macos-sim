@@ -218,6 +218,7 @@ static void on_signal(int signal_number) { (void)signal_number; running = 0; }
 int main(int argc, char **argv)
 {
     const char *ipc_spec = NULL;
+    char manager_ipc[sizeof(((struct sockaddr_un *)0)->sun_path) + 9u];
     simulator_t sim;
     wlh_coproc_config_t config;
     wlh_sim_hello_t local = {WLH_SIM_ROLE_COPROC, WLH_SIM_FLAG_SIDEBAND, WLH_SIM_MAX_RECORD_SIZE};
@@ -228,6 +229,13 @@ int main(int argc, char **argv)
     sim.monitor_interval_ms = 1000u;
     for (i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--ipc") == 0 && i + 1 < argc) ipc_spec = argv[++i];
+        else if (strcmp(argv[i], "--manager-socket") == 0 && i + 1 < argc) {
+            const char *path = argv[++i];
+            if (strlen(path) + sizeof("connect:") > sizeof(manager_ipc)) return 2;
+            memcpy(manager_ipc, "connect:", sizeof("connect:") - 1u);
+            memcpy(manager_ipc + sizeof("connect:") - 1u, path, strlen(path) + 1u);
+            ipc_spec = manager_ipc;
+        }
         else if (strcmp(argv[i], "--monitor-interval-ms") == 0 && i + 1 < argc)
             sim.monitor_interval_ms = (uint32_t)strtoul(argv[++i], NULL, 10);
         else if (strcmp(argv[i], "--scenario") == 0 && i + 1 < argc) {
