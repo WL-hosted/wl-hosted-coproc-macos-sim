@@ -29,11 +29,21 @@ typedef struct wlh_sim_hello {
 
 int wlh_sim_write_hello(int fd, const wlh_sim_hello_t *hello);
 int wlh_sim_read_hello(int fd, wlh_sim_hello_t *hello);
+
 int wlh_sim_write_record(
-    int fd, wlh_sim_record_kind_t kind, const uint8_t *payload, size_t payload_size,
-    uint32_t max_record_size);
+    int fd,
+    wlh_sim_record_kind_t kind,
+    const uint8_t *payload,
+    size_t payload_size,
+    uint32_t max_record_size
+);
 int wlh_sim_read_record(
-    int fd, wlh_sim_record_kind_t *kind, uint8_t *payload, size_t capacity,
-    size_t *payload_size, uint32_t max_record_size);
+    int fd,
+    wlh_sim_record_kind_t *kind,
+    uint8_t *payload,
+    size_t capacity,
+    size_t *payload_size,
+    uint32_t max_record_size
+);
 
 #endif
