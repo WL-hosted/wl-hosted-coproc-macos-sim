@@ -471,4 +471,3 @@ wlh_osal_ops_t wlh_posix_osal_ops(wlh_posix_osal_t *osal) {
     };
     return ops;
 }
-

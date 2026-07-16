@@ -11,4 +11,3 @@ void wlh_posix_osal_init(wlh_posix_osal_t *osal);
 wlh_osal_ops_t wlh_posix_osal_ops(wlh_posix_osal_t *osal);
 
 #endif
-
