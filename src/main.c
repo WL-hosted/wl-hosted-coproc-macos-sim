@@ -3,6 +3,7 @@
 #include "wlh/coproc.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdatomic.h>
@@ -564,7 +565,16 @@ int main(int argc, char **argv) {
     sim.next_monitor_ms = monotonic_ms(NULL) + sim.monitor_interval_ms;
     while (running) {
         struct pollfd poll_fd = {sim.fd, POLLIN, 0};
-        int ready = poll(&poll_fd, 1, 50);
+        int poll_timeout = -1;
+        int ready;
+        if (sim.sideband) {
+            uint64_t now = monotonic_ms(NULL);
+            uint64_t remaining =
+                sim.next_monitor_ms > now ? sim.next_monitor_ms - now : 0u;
+            poll_timeout =
+                remaining > (uint64_t)INT_MAX ? INT_MAX : (int)remaining;
+        }
+        ready = poll(&poll_fd, 1, poll_timeout);
         if (ready < 0 && errno != EINTR)
             break;
         if (ready > 0 &&

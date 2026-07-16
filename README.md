@@ -8,7 +8,9 @@ The POSIX adapter runs independent Core, TX, and mock Wi-Fi tasks through the
 same opaque OSAL contract intended for MCU adapters. Mock Wi-Fi operations are
 accepted immediately but complete after a deterministic delay, with scan and
 link results returned through asynchronous Core event ingress. The scenario
-main loop never polls the Core.
+main loop never polls the Core. Socket readiness blocks in the native poller
+until either a frame arrives or the next telemetry deadline expires; the Core
+uses the same deadline-driven wait for Heartbeat.
 
 ```sh
 cmake -S . -B build -DBUILD_TESTING=ON
