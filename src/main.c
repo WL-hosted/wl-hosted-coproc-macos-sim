@@ -27,7 +27,7 @@ typedef struct simulator {
     uint32_t monitor_interval_ms;
     uint64_t next_monitor_ms;
     bool scan_failure;
-    bool buffer_oom;
+    uint32_t buffer_oom_remaining;
     wlh_coproc_t core;
 } simulator_t;
 
@@ -52,7 +52,10 @@ static uint64_t monotonic_ms(void *context)
 static int transport_send(void *context, const uint8_t *frame, size_t size)
 {
     simulator_t *sim = context;
-    if (sim->buffer_oom) return -1;
+    if (sim->buffer_oom_remaining != 0u) {
+        --sim->buffer_oom_remaining;
+        return -1;
+    }
     return wlh_sim_write_record(sim->fd, WLH_SIM_RECORD_WIRE_FRAME, frame, size,
                                 sim->max_record_size);
 }
@@ -66,14 +69,14 @@ static void ethernet_echo(void *context, const uint8_t *frame, size_t size)
 static int wifi_initialize(void *context)
 {
     simulator_t *sim = context;
-    return sim->buffer_oom ? -1 : 0;
+    return sim->buffer_oom_remaining != 0u ? -1 : 0;
 }
 
 static int wifi_scan(void *context, uint32_t scan_id)
 {
     simulator_t *sim = context;
     size_t i;
-    if (sim->scan_failure || sim->scenario != SCENARIO_HAPPY) {
+    if (sim->scan_failure) {
         (void)wlh_coproc_wifi_scan_completed(&sim->core, scan_id, 0, false);
         return -1;
     }
@@ -105,7 +108,7 @@ static int wifi_connect(void *context, const wlh_coproc_wifi_connect_t *request)
         (void)wlh_coproc_wifi_disconnected(&sim->core, 2u, false);
         return -1;
     }
-    if (sim->scenario == SCENARIO_AUTH_FAIL ||
+    if (sim->scenario == SCENARIO_AUTH_FAIL || request->security != match->security ||
         (match->security == 4u && !bytes_equal(request->credential, request->credential_size, "password123")) ||
         (match->security == 6u && !bytes_equal(request->credential, request->credential_size, "sae-secret"))) {
         (void)wlh_coproc_wifi_disconnected(&sim->core, 3u, false);
@@ -166,6 +169,7 @@ static int send_runtime(simulator_t *sim)
     info.uptime_ms = monotonic_ms(NULL);
     info.tx_frames = diagnostics.tx_frames;
     info.rx_frames = diagnostics.rx_frames;
+    info.free_buffers = sim->buffer_oom_remaining == 0u ? 64u : 0u;
     memcpy(info.implementation, "wlh-coproc-macos-sim", sizeof("wlh-coproc-macos-sim"));
     memcpy(info.implementation_version, "0.1.0", sizeof("0.1.0"));
     if (!pb_encode(&stream, wlh_sim_v1_SimRuntimeInfo_fields, &info)) return -1;
@@ -181,7 +185,9 @@ static int handle_fault(simulator_t *sim, const uint8_t *payload, size_t size)
     wlh_sim_v1_SimFaultRequest request = wlh_sim_v1_SimFaultRequest_init_zero;
     wlh_sim_v1_SimFaultResponse response = wlh_sim_v1_SimFaultResponse_init_zero;
     bool accepted = true;
-    if (!pb_decode(&input, wlh_sim_v1_SimFaultRequest_fields, &request) || request.request_id == 0u)
+    if (!pb_decode(&input, wlh_sim_v1_SimFaultRequest_fields, &request) || request.request_id == 0u ||
+        request.channel > 255u || request.count > 1024u || request.duration_ms > 60000u ||
+        request.parameters.size > 256u)
         return -1;
     switch (request.fault) {
     case wlh_sim_v1_SimFaultKind_SIM_FAULT_KIND_SESSION_CHANGE:
@@ -190,17 +196,16 @@ static int handle_fault(simulator_t *sim, const uint8_t *payload, size_t size)
     case wlh_sim_v1_SimFaultKind_SIM_FAULT_KIND_CLEAR_CREDIT:
         wlh_coproc_test_set_credit(&sim->core, 1u, 0u);
         wlh_coproc_test_set_credit(&sim->core, 2u, 0u); break;
+    case wlh_sim_v1_SimFaultKind_SIM_FAULT_KIND_CHANNEL_RESET:
+        wlh_coproc_test_reset_channel(&sim->core, (uint8_t)request.channel); break;
     case wlh_sim_v1_SimFaultKind_SIM_FAULT_KIND_BUFFER_OOM:
-        sim->buffer_oom = true; break;
+        sim->buffer_oom_remaining = request.count != 0u ? request.count : 1u; break;
     case wlh_sim_v1_SimFaultKind_SIM_FAULT_KIND_LIMIT_CREDIT:
         wlh_coproc_test_set_credit(&sim->core, (uint8_t)request.channel, request.count); break;
     case wlh_sim_v1_SimFaultKind_SIM_FAULT_KIND_WIFI_DISCONNECT:
         (void)wlh_coproc_wifi_disconnected(&sim->core, 7u, false); break;
     case wlh_sim_v1_SimFaultKind_SIM_FAULT_KIND_WIFI_SCAN_FAILURE:
         sim->scan_failure = true; break;
-    case wlh_sim_v1_SimFaultKind_SIM_FAULT_KIND_QUEUE_STARVATION:
-    case wlh_sim_v1_SimFaultKind_SIM_FAULT_KIND_RPC_TIMEOUT:
-        break;
     default: accepted = false; break;
     }
     response.request_id = request.request_id;
@@ -245,7 +250,8 @@ int main(int argc, char **argv)
             else if (strcmp(scenario, "happy") != 0) return 2;
         } else { fprintf(stderr, "invalid argument: %s\n", argv[i]); return 2; }
     }
-    if (ipc_spec == NULL || (sim.fd = open_unix(ipc_spec)) < 0) return 2;
+    if (ipc_spec == NULL || sim.monitor_interval_ms == 0u || sim.monitor_interval_ms > 60000u ||
+        (sim.fd = open_unix(ipc_spec)) < 0) return 2;
     if (wlh_sim_write_hello(sim.fd, &local) != 0 || wlh_sim_read_hello(sim.fd, &peer) != 0) return 3;
     if (peer.role != WLH_SIM_ROLE_HOST && peer.role != WLH_SIM_ROLE_MANAGER) return 3;
     sim.max_record_size = peer.max_record_size < local.max_record_size
@@ -270,14 +276,20 @@ int main(int argc, char **argv)
         struct pollfd poll_fd = {sim.fd, POLLIN, 0};
         int ready = poll(&poll_fd, 1, 50);
         if (ready < 0 && errno != EINTR) break;
+        if (ready > 0 && (poll_fd.revents & (POLLHUP | POLLERR | POLLNVAL)) != 0) break;
         if (ready > 0 && (poll_fd.revents & POLLIN) != 0) {
             wlh_sim_record_kind_t kind; size_t size;
             if (wlh_sim_read_record(sim.fd, &kind, record, sim.max_record_size, &size,
                                     sim.max_record_size) != 0) break;
-            if (kind == WLH_SIM_RECORD_WIRE_FRAME) (void)wlh_coproc_on_frame(&sim.core, record, size);
-            else if (kind == WLH_SIM_RECORD_FAULT_REQUEST && sim.sideband)
+            if (kind == WLH_SIM_RECORD_WIRE_FRAME) {
+                (void)wlh_coproc_on_frame(&sim.core, record, size);
+            } else if (!sim.sideband) {
+                break;
+            } else if (kind == WLH_SIM_RECORD_FAULT_REQUEST) {
                 (void)handle_fault(&sim, record, size);
-            else if (kind != WLH_SIM_RECORD_RUNTIME_INFO) break;
+            } else {
+                break;
+            }
         }
         (void)wlh_coproc_poll(&sim.core);
         if (sim.sideband && monotonic_ms(NULL) >= sim.next_monitor_ms) {

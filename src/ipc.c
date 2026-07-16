@@ -1,6 +1,7 @@
 #include "ipc.h"
 
 #include <errno.h>
+#include <stdint.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -77,7 +78,9 @@ int wlh_sim_write_record(
 {
     uint8_t header[8] = {0};
     if (kind < WLH_SIM_RECORD_WIRE_FRAME || kind > WLH_SIM_RECORD_FAULT_RESPONSE ||
-        (payload == NULL && payload_size != 0u) || payload_size + 8u > max_record_size) return -1;
+        (payload == NULL && payload_size != 0u) || max_record_size < 8u ||
+        payload_size > (size_t)UINT32_MAX - 4u ||
+        payload_size > (size_t)max_record_size - 8u) return -1;
     write_u32(header, (uint32_t)payload_size + 4u);
     header[4] = (uint8_t)kind;
     return write_all(fd, header, sizeof(header)) == 0 && write_all(fd, payload, payload_size) == 0 ? 0 : -1;
@@ -89,9 +92,10 @@ int wlh_sim_read_record(
 {
     uint8_t header[8];
     uint32_t record_len;
-    if (kind == NULL || payload == NULL || payload_size == NULL || read_all(fd, header, sizeof(header)) != 0) return -1;
+    if (kind == NULL || payload == NULL || payload_size == NULL || max_record_size < 8u ||
+        read_all(fd, header, sizeof(header)) != 0) return -1;
     record_len = read_u32(header);
-    if (record_len < 4u || record_len + 4u > max_record_size || record_len - 4u > capacity ||
+    if (record_len < 4u || record_len > max_record_size - 4u || record_len - 4u > capacity ||
         header[4] < WLH_SIM_RECORD_WIRE_FRAME || header[4] > WLH_SIM_RECORD_FAULT_RESPONSE ||
         header[5] != 0u || header[6] != 0u || header[7] != 0u) return -1;
     *kind = (wlh_sim_record_kind_t)header[4];
