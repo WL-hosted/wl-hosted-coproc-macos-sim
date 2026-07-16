@@ -63,6 +63,7 @@ typedef enum wifi_job_kind {
 
 typedef struct wifi_job {
     wifi_job_kind_t kind;
+    uint32_t operation_id;
     uint32_t scan_id;
     wlh_coproc_wifi_connect_t connect;
 } wifi_job_t;
@@ -233,10 +234,11 @@ static int wifi_submit_job(simulator_t *sim, const wifi_job_t *job) {
     return 0;
 }
 
-static int wifi_initialize(void *context) {
+static int wifi_initialize(void *context, uint32_t operation_id) {
     wifi_job_t job;
     memset(&job, 0, sizeof(job));
     job.kind = WIFI_JOB_INITIALIZE;
+    job.operation_id = operation_id;
     return wifi_submit_job(context, &job);
 }
 
@@ -281,8 +283,12 @@ static void wifi_worker(void *argument) {
             break;
         }
         sim->osal.sleep_ms(sim->osal.context, sim->backend_delay_ms);
-        if (job->kind == WIFI_JOB_INITIALIZE)
-            (void)wifi_do_initialize(sim);
+        if (job->kind == WIFI_JOB_INITIALIZE) {
+            int status = wifi_do_initialize(sim);
+            (void)wlh_coproc_wifi_initialized(
+                &sim->core, job->operation_id, status
+            );
+        }
         else if (job->kind == WIFI_JOB_SCAN)
             (void)wifi_do_scan(sim, job->scan_id);
         else if (job->kind == WIFI_JOB_CONNECT)
