@@ -1,6 +1,6 @@
 #include "ipc.h"
-#include "wlh/posix_osal.h"
 #include "wlh/coproc.h"
+#include "wlh/posix_osal.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -110,15 +110,17 @@ static void tx_worker(void *argument) {
     for (;;) {
         tx_work_t *work = NULL;
         if (sim->osal.queue_receive(
-                sim->osal.context, &sim->tx_queue, &work,
-                WLH_OSAL_WAIT_FOREVER
+                sim->osal.context, &sim->tx_queue, &work, WLH_OSAL_WAIT_FOREVER
             ) != 0)
             continue;
         if (work == NULL)
             break;
         {
             int status = wlh_sim_write_record(
-                sim->fd, WLH_SIM_RECORD_WIRE_FRAME, work->frame, work->size,
+                sim->fd,
+                WLH_SIM_RECORD_WIRE_FRAME,
+                work->frame,
+                work->size,
                 sim->max_record_size
             );
             work->completion(
@@ -130,8 +132,11 @@ static void tx_worker(void *argument) {
 }
 
 static int transport_submit(
-    void *context, uint8_t *frame, size_t size,
-    wlh_coproc_tx_complete_fn completion, void *completion_context
+    void *context,
+    uint8_t *frame,
+    size_t size,
+    wlh_coproc_tx_complete_fn completion,
+    void *completion_context
 ) {
     simulator_t *sim = context;
     tx_work_t *work = malloc(sizeof(*work));
@@ -275,8 +280,7 @@ static void wifi_worker(void *argument) {
     for (;;) {
         wifi_job_t *job = NULL;
         if (sim->osal.queue_receive(
-                sim->osal.context, &sim->wifi_queue, &job,
-                WLH_OSAL_WAIT_FOREVER
+                sim->osal.context, &sim->wifi_queue, &job, WLH_OSAL_WAIT_FOREVER
             ) != 0)
             continue;
         if (job == NULL || job->kind == WIFI_JOB_STOP) {
@@ -289,8 +293,7 @@ static void wifi_worker(void *argument) {
             (void)wlh_coproc_wifi_initialized(
                 &sim->core, job->operation_id, status
             );
-        }
-        else if (job->kind == WIFI_JOB_SCAN)
+        } else if (job->kind == WIFI_JOB_SCAN)
             (void)wifi_do_scan(sim, job->scan_id);
         else if (job->kind == WIFI_JOB_CONNECT)
             (void)wifi_do_connect(sim, &job->connect);
@@ -398,8 +401,7 @@ static int handle_fault(simulator_t *sim, const uint8_t *payload, size_t size) {
         break;
     case wlh_sim_v1_SimFaultKind_SIM_FAULT_KIND_BUFFER_OOM:
         atomic_store(
-            &sim->buffer_oom_remaining,
-            request.count != 0u ? request.count : 1u
+            &sim->buffer_oom_remaining, request.count != 0u ? request.count : 1u
         );
         break;
     case wlh_sim_v1_SimFaultKind_SIM_FAULT_KIND_LIMIT_CREDIT:
@@ -446,9 +448,7 @@ int main(int argc, char **argv) {
     char manager_ipc[sizeof(((struct sockaddr_un *)0)->sun_path) + 9u];
     simulator_t sim;
     wlh_coproc_config_t config;
-    wlh_osal_task_attributes_t tx_attributes = {
-        "wlh-coproc-posix-tx", 0u, 0
-    };
+    wlh_osal_task_attributes_t tx_attributes = {"wlh-coproc-posix-tx", 0u, 0};
     wlh_osal_task_attributes_t wifi_attributes = {
         "wlh-coproc-mock-wifi", 0u, 0
     };
@@ -514,19 +514,28 @@ int main(int argc, char **argv) {
     wlh_posix_osal_init(&sim.posix_osal);
     sim.osal = wlh_posix_osal_ops(&sim.posix_osal);
     if (sim.osal.queue_create(
-            sim.osal.context, &sim.tx_queue, sim.tx_queue_storage,
-            sizeof(void *), 16u
+            sim.osal.context,
+            &sim.tx_queue,
+            sim.tx_queue_storage,
+            sizeof(void *),
+            16u
         ) != 0 ||
         sim.osal.task_create(
             sim.osal.context, &sim.tx_task, &tx_attributes, tx_worker, &sim
         ) != 0 ||
         sim.osal.queue_create(
-            sim.osal.context, &sim.wifi_queue, sim.wifi_queue_storage,
-            sizeof(void *), 16u
+            sim.osal.context,
+            &sim.wifi_queue,
+            sim.wifi_queue_storage,
+            sizeof(void *),
+            16u
         ) != 0 ||
         sim.osal.task_create(
-            sim.osal.context, &sim.wifi_task, &wifi_attributes,
-            wifi_worker, &sim
+            sim.osal.context,
+            &sim.wifi_task,
+            &wifi_attributes,
+            wifi_worker,
+            &sim
         ) != 0)
         return 4;
 
@@ -534,9 +543,7 @@ int main(int argc, char **argv) {
     config.port.context = &sim;
     config.port.submit_tx = transport_submit;
     config.port.ethernet_rx = ethernet_echo;
-    config.buffers = (wlh_coproc_buffer_ops_t){
-        &sim, buffer_alloc, buffer_free
-    };
+    config.buffers = (wlh_coproc_buffer_ops_t){&sim, buffer_alloc, buffer_free};
     config.osal = sim.osal;
 
     config.wifi.context = &sim;
@@ -613,12 +620,9 @@ int main(int argc, char **argv) {
     {
         wifi_job_t *stop = NULL;
         (void)sim.osal.queue_send(
-            sim.osal.context, &sim.wifi_queue, &stop,
-            WLH_OSAL_WAIT_FOREVER
+            sim.osal.context, &sim.wifi_queue, &stop, WLH_OSAL_WAIT_FOREVER
         );
-        (void)sim.osal.task_join(
-            sim.osal.context, &sim.wifi_task, 3000u
-        );
+        (void)sim.osal.task_join(sim.osal.context, &sim.wifi_task, 3000u);
         sim.osal.queue_destroy(sim.osal.context, &sim.wifi_queue);
     }
     {
@@ -626,9 +630,7 @@ int main(int argc, char **argv) {
         (void)sim.osal.queue_send(
             sim.osal.context, &sim.tx_queue, &stop, WLH_OSAL_WAIT_FOREVER
         );
-        (void)sim.osal.task_join(
-            sim.osal.context, &sim.tx_task, 3000u
-        );
+        (void)sim.osal.task_join(sim.osal.context, &sim.tx_task, 3000u);
         sim.osal.queue_destroy(sim.osal.context, &sim.tx_queue);
     }
     close(sim.fd);
