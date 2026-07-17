@@ -1,5 +1,5 @@
 #include "ipc.h"
-#include "posix_osal.h"
+#include "wlh/posix_osal.h"
 #include "wlh/coproc.h"
 
 #include <errno.h>
