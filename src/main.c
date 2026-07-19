@@ -1,6 +1,11 @@
 #include "ipc.h"
+#include "wifi_backend.h"
 #include "wlh/coproc.h"
 #include "wlh/posix_osal.h"
+
+#ifdef WLH_SIM_HAVE_REAL_BACKEND
+#include "wifi_backend_real.h"
+#endif
 
 #include <errno.h>
 #include <limits.h>
@@ -45,6 +50,10 @@ typedef struct simulator {
     void *wifi_queue_storage[16];
     uint32_t backend_delay_ms;
     wlh_coproc_t core;
+    wlh_wifi_backend_t backend;
+#ifdef WLH_SIM_HAVE_REAL_BACKEND
+    wlh_wifi_backend_real_t *real_backend;
+#endif
 } simulator_t;
 
 typedef struct tx_work {
@@ -226,6 +235,16 @@ static int wifi_do_disconnect(void *context) {
     return 0;
 }
 
+static int wifi_mock_fault(void *context, wlh_wifi_backend_fault_t fault) {
+    simulator_t *sim = context;
+    if (fault == WLH_WIFI_BACKEND_FAULT_SCAN_FAILURE) {
+        sim->scan_failure = true;
+        return 0;
+    }
+    (void)wlh_coproc_wifi_disconnected(&sim->core, 7u, false);
+    return 0;
+}
+
 static int wifi_submit_job(simulator_t *sim, const wifi_job_t *job) {
     wifi_job_t *copy = malloc(sizeof(*copy));
     if (copy == NULL)
@@ -289,16 +308,16 @@ static void wifi_worker(void *argument) {
         }
         sim->osal.sleep_ms(sim->osal.context, sim->backend_delay_ms);
         if (job->kind == WIFI_JOB_INITIALIZE) {
-            int status = wifi_do_initialize(sim);
+            int status = sim->backend.initialize(sim->backend.context);
             (void)wlh_coproc_wifi_initialized(
                 &sim->core, job->operation_id, status
             );
         } else if (job->kind == WIFI_JOB_SCAN)
-            (void)wifi_do_scan(sim, job->scan_id);
+            (void)sim->backend.scan(sim->backend.context, job->scan_id);
         else if (job->kind == WIFI_JOB_CONNECT)
-            (void)wifi_do_connect(sim, &job->connect);
+            (void)sim->backend.connect(sim->backend.context, &job->connect);
         else if (job->kind == WIFI_JOB_DISCONNECT)
-            (void)wifi_do_disconnect(sim);
+            (void)sim->backend.disconnect(sim->backend.context);
         free(job);
     }
 }
@@ -410,10 +429,14 @@ static int handle_fault(simulator_t *sim, const uint8_t *payload, size_t size) {
         );
         break;
     case wlh_sim_v1_SimFaultKind_SIM_FAULT_KIND_WIFI_DISCONNECT:
-        (void)wlh_coproc_wifi_disconnected(&sim->core, 7u, false);
+        accepted = sim->backend.fault(
+                       sim->backend.context, WLH_WIFI_BACKEND_FAULT_DISCONNECT
+                   ) == 0;
         break;
     case wlh_sim_v1_SimFaultKind_SIM_FAULT_KIND_WIFI_SCAN_FAILURE:
-        sim->scan_failure = true;
+        accepted = sim->backend.fault(
+                       sim->backend.context, WLH_WIFI_BACKEND_FAULT_SCAN_FAILURE
+                   ) == 0;
         break;
     default:
         accepted = false;
@@ -449,9 +472,7 @@ int main(int argc, char **argv) {
     simulator_t sim;
     wlh_coproc_config_t config;
     wlh_osal_task_attributes_t tx_attributes = {"wlh-coproc-posix-tx", 0u, 0};
-    wlh_osal_task_attributes_t wifi_attributes = {
-        "wlh-coproc-mock-wifi", 0u, 0
-    };
+    wlh_osal_task_attributes_t wifi_attributes = {"wlh-coproc-wifi", 0u, 0};
     // clang-format off
     wlh_sim_hello_t local = {
         WLH_SIM_ROLE_COPROC,
@@ -461,10 +482,11 @@ int main(int argc, char **argv) {
     // clang-format on
     wlh_sim_hello_t peer;
     uint8_t *record;
+    bool use_real_backend = false;
+    bool scenario_given = false;
     int i;
     memset(&sim, 0, sizeof(sim));
     atomic_init(&sim.buffer_oom_remaining, 0u);
-    sim.backend_delay_ms = 25u;
     sim.monitor_interval_ms = 1000u;
 
     for (i = 1; i < argc; ++i) {
@@ -482,8 +504,15 @@ int main(int argc, char **argv) {
         } else if (strcmp(argv[i], "--monitor-interval-ms") == 0 &&
                    i + 1 < argc)
             sim.monitor_interval_ms = (uint32_t)strtoul(argv[++i], NULL, 10);
-        else if (strcmp(argv[i], "--scenario") == 0 && i + 1 < argc) {
+        else if (strcmp(argv[i], "--backend") == 0 && i + 1 < argc) {
+            const char *backend = argv[++i];
+            if (strcmp(backend, "real") == 0)
+                use_real_backend = true;
+            else if (strcmp(backend, "mock") != 0)
+                return 2;
+        } else if (strcmp(argv[i], "--scenario") == 0 && i + 1 < argc) {
             const char *scenario = argv[++i];
+            scenario_given = true;
             if (strcmp(scenario, "auth-fail") == 0)
                 sim.scenario = SCENARIO_AUTH_FAIL;
             else if (strcmp(scenario, "ap-not-found") == 0)
@@ -495,6 +524,18 @@ int main(int argc, char **argv) {
             return 2;
         }
     }
+
+    if (use_real_backend) {
+        if (scenario_given)
+            fprintf(
+                stderr, "warning: --scenario is ignored with --backend real\n"
+            );
+#ifndef WLH_SIM_HAVE_REAL_BACKEND
+        fprintf(stderr, "real backend is not available on this platform\n");
+        return 2;
+#endif
+    }
+    sim.backend_delay_ms = use_real_backend ? 0u : 25u;
 
     if (ipc_spec == NULL || sim.monitor_interval_ms == 0u ||
         sim.monitor_interval_ms > 60000u || (sim.fd = open_unix(ipc_spec)) < 0)
@@ -538,6 +579,29 @@ int main(int argc, char **argv) {
             &sim
         ) != 0)
         return 4;
+
+#ifdef WLH_SIM_HAVE_REAL_BACKEND
+    if (use_real_backend) {
+        sim.real_backend = wlh_wifi_backend_real_create(&sim.core);
+        if (sim.real_backend == NULL) {
+            fprintf(stderr, "failed to create real WiFi backend\n");
+            return 4;
+        }
+        wlh_wifi_backend_real_fill_ops(sim.real_backend, &sim.backend);
+    } else
+#endif
+    {
+        // clang-format off
+        sim.backend = (wlh_wifi_backend_t){
+            &sim,
+            wifi_do_initialize,
+            wifi_do_scan,
+            wifi_do_connect,
+            wifi_do_disconnect,
+            wifi_mock_fault
+        };
+        // clang-format on
+    }
 
     memset(&config, 0, sizeof(config));
     config.port.context = &sim;
@@ -617,6 +681,9 @@ int main(int argc, char **argv) {
 
     free(record);
     (void)wlh_coproc_stop(&sim.core);
+#ifdef WLH_SIM_HAVE_REAL_BACKEND
+    wlh_wifi_backend_real_destroy(sim.real_backend);
+#endif
     {
         wifi_job_t *stop = NULL;
         (void)sim.osal.queue_send(

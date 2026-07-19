@@ -20,9 +20,32 @@ target_link_libraries(wlh-coproc-macos-sim PRIVATE
   wlh_coproc_core wlh_sim_nanopb wlh_sim_ipc wlh::posix_osal Threads::Threads)
 target_compile_features(wlh-coproc-macos-sim PRIVATE c_std_11)
 
+if(APPLE)
+  enable_language(Swift)
+  target_sources(wlh-coproc-macos-sim PRIVATE
+    src/wifi_backend_real.c src/wifi_backend_real.swift)
+  target_compile_definitions(wlh-coproc-macos-sim PRIVATE WLH_SIM_HAVE_REAL_BACKEND)
+  # main() lives in C; do not let the Swift object emit its own _main.
+  target_compile_options(wlh-coproc-macos-sim PRIVATE
+    $<$<COMPILE_LANGUAGE:Swift>:-parse-as-library>)
+  target_link_libraries(wlh-coproc-macos-sim PRIVATE
+    "-framework Foundation" "-framework CoreWLAN")
+  # Keep sanitizer builds working through the swiftc link driver: mirror the
+  # C -fsanitize flags as Swift -sanitize flags (compile and link).
+  foreach(sanitizer address thread undefined)
+    if(CMAKE_C_FLAGS MATCHES "-fsanitize=[^ ]*${sanitizer}")
+      target_compile_options(wlh-coproc-macos-sim PRIVATE
+        $<$<COMPILE_LANGUAGE:Swift>:-sanitize=${sanitizer}>)
+      target_link_options(wlh-coproc-macos-sim PRIVATE
+        $<$<LINK_LANGUAGE:Swift>:-sanitize=${sanitizer}>)
+    endif()
+  endforeach()
+endif()
+
 if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(wlh_sim_ipc PRIVATE -Wall -Wextra -Wpedantic -Werror)
-  target_compile_options(wlh-coproc-macos-sim PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  target_compile_options(wlh-coproc-macos-sim PRIVATE
+    $<$<COMPILE_LANGUAGE:C>:-Wall -Wextra -Wpedantic -Werror>)
 endif()
 
 if(BUILD_TESTING)
