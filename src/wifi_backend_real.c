@@ -1,4 +1,5 @@
 #include "wifi_backend_real.h"
+#include "wlh/log.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -82,13 +83,16 @@ static void forward_connected_bss(
 
 static int real_initialize(void *context) {
     wlh_wifi_backend_real_t *backend = context;
-    return wlh_real_swift_initialize(backend->swift) == 0 ? 0 : -1;
+    int32_t status = wlh_real_swift_initialize(backend->swift);
+    WLH_LOGI("coproc-sim", "real backend initialize status=%ld", (long)status);
+    return status == 0 ? 0 : -1;
 }
 
 static int real_scan(void *context, uint32_t scan_id) {
     wlh_wifi_backend_real_t *backend = context;
     bss_forward_t forward = {backend->core, scan_id};
     int32_t count = wlh_real_swift_scan(backend->swift, forward_bss, &forward);
+    WLH_LOGI("coproc-sim", "real backend scan count=%ld", (long)count);
     (void)wlh_coproc_wifi_scan_completed(
         backend->core, scan_id, count > 0 ? (uint32_t)count : 0u, false
     );
@@ -106,6 +110,12 @@ static int real_connect(
         return -1;
     memcpy(password, request->credential, request->credential_size);
     password[request->credential_size] = '\0';
+    WLH_LOGI(
+        "coproc-sim",
+        "real backend connect ssid_size=%zu security=%lu",
+        request->ssid_size,
+        (unsigned long)request->security
+    );
     status = wlh_real_swift_connect(
         backend->swift,
         request->ssid,
@@ -116,6 +126,7 @@ static int real_connect(
     );
     if (status == 0)
         return 0;
+    WLH_LOGW("coproc-sim", "real backend connect failed status=%ld", (long)status);
     (void)wlh_coproc_wifi_disconnected(
         backend->core, status == -2 ? 2u : 3u, false
     );
@@ -124,6 +135,7 @@ static int real_connect(
 
 static int real_disconnect(void *context) {
     wlh_wifi_backend_real_t *backend = context;
+    WLH_LOGI("coproc-sim", "real backend disconnect");
     (void)wlh_real_swift_disconnect(backend->swift);
     (void)wlh_coproc_wifi_disconnected(backend->core, 1u, true);
     return 0;
@@ -132,6 +144,7 @@ static int real_disconnect(void *context) {
 static int real_fault(void *context, wlh_wifi_backend_fault_t fault) {
     wlh_wifi_backend_real_t *backend = context;
     if (fault == WLH_WIFI_BACKEND_FAULT_DISCONNECT) {
+        WLH_LOGI("coproc-sim", "real backend fault disconnect");
         (void)wlh_real_swift_disconnect(backend->swift);
         (void)wlh_coproc_wifi_disconnected(backend->core, 7u, false);
         return 0;

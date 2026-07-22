@@ -1,4 +1,5 @@
 #include "ipc.h"
+#include "wlh/log.h"
 
 #include <errno.h>
 #include <stdint.h>
@@ -110,12 +111,12 @@ int wlh_sim_write_record(
 
     write_u32(header, (uint32_t)payload_size + 4u);
     header[4] = (uint8_t)kind;
-    // clang-format off
-    return write_all(fd, header, sizeof(header)) == 0 &&
-                   write_all(fd, payload, payload_size) == 0
-               ? 0
-               : -1;
-    // clang-format on
+    if (write_all(fd, header, sizeof(header)) != 0 ||
+        write_all(fd, payload, payload_size) != 0) {
+        WLH_LOGW("coproc-sim", "IPC write record failed: %s", strerror(errno));
+        return -1;
+    }
+    return 0;
 }
 
 int wlh_sim_read_record(
@@ -151,5 +152,9 @@ int wlh_sim_read_record(
 
     *kind = (wlh_sim_record_kind_t)header[4];
     *payload_size = record_len - 4u;
-    return read_all(fd, payload, *payload_size);
+    if (read_all(fd, payload, *payload_size) != 0) {
+        WLH_LOGW("coproc-sim", "IPC read payload failed: %s", strerror(errno));
+        return -1;
+    }
+    return 0;
 }

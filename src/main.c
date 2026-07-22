@@ -1,6 +1,7 @@
 #include "ipc.h"
 #include "wifi_backend.h"
 #include "wlh/coproc.h"
+#include "wlh/log.h"
 #include "wlh/posix_osal.h"
 
 #ifdef WLH_SIM_HAVE_REAL_BACKEND
@@ -90,6 +91,32 @@ static const wlh_coproc_bss_t networks[3] = {
 };
 // clang-format on
 
+static const char *scenario_name(scenario_t scenario) {
+    switch (scenario) {
+    case SCENARIO_HAPPY:
+        return "happy";
+    case SCENARIO_AUTH_FAIL:
+        return "auth-fail";
+    case SCENARIO_AP_NOT_FOUND:
+        return "ap-not-found";
+    default:
+        return "unknown";
+    }
+}
+
+static const char *role_name(wlh_sim_role_t role) {
+    switch (role) {
+    case WLH_SIM_ROLE_HOST:
+        return "host";
+    case WLH_SIM_ROLE_COPROC:
+        return "coproc";
+    case WLH_SIM_ROLE_MANAGER:
+        return "manager";
+    default:
+        return "unknown";
+    }
+}
+
 static uint64_t monotonic_ms(void *context) {
     struct timespec value;
     (void)context;
@@ -174,7 +201,9 @@ static int wifi_do_initialize(void *context) {
 static int wifi_do_scan(void *context, uint32_t scan_id) {
     simulator_t *sim = context;
     size_t i;
+    WLH_LOGI("coproc-sim", "wifi scan started scan_id=%lu", (unsigned long)scan_id);
     if (sim->scan_failure) {
+        WLH_LOGW("coproc-sim", "wifi scan forced failure scan_id=%lu", (unsigned long)scan_id);
         (void)wlh_coproc_wifi_scan_completed(&sim->core, scan_id, 0, false);
         return -1;
     }
@@ -182,6 +211,7 @@ static int wifi_do_scan(void *context, uint32_t scan_id) {
         (void)wlh_coproc_wifi_scan_result(&sim->core, scan_id, &networks[i]);
         sim->osal.sleep_ms(sim->osal.context, 10u);
     }
+    WLH_LOGI("coproc-sim", "wifi scan completed scan_id=%lu results=3", (unsigned long)scan_id);
     (void)wlh_coproc_wifi_scan_completed(&sim->core, scan_id, 3, false);
     return 0;
 }
@@ -199,7 +229,14 @@ static int wifi_do_connect(
     simulator_t *sim = context;
     size_t i;
     const wlh_coproc_bss_t *match = NULL;
+    WLH_LOGI(
+        "coproc-sim",
+        "wifi connect ssid_size=%zu security=%lu",
+        request->ssid_size,
+        (unsigned long)request->security
+    );
     if (sim->scenario == SCENARIO_AP_NOT_FOUND) {
+        WLH_LOGW("coproc-sim", "wifi connect AP not found");
         (void)wlh_coproc_wifi_disconnected(&sim->core, 2u, false);
         return -1;
     }
@@ -209,6 +246,7 @@ static int wifi_do_connect(
             match = &networks[i];
     }
     if (match == NULL) {
+        WLH_LOGW("coproc-sim", "wifi connect no matching AP");
         (void)wlh_coproc_wifi_disconnected(&sim->core, 2u, false);
         return -1;
     }
@@ -221,16 +259,19 @@ static int wifi_do_connect(
         (match->security == 6u &&
          !bytes_equal(request->credential, request->credential_size,
                       "sae-secret"))) {
+        // clang-format on
+        WLH_LOGW("coproc-sim", "wifi connect authentication failed");
         (void)wlh_coproc_wifi_disconnected(&sim->core, 3u, false);
         return -1;
     }
-    // clang-format on
+    WLH_LOGI("coproc-sim", "wifi connected to %.*s", (int)match->ssid_size, match->ssid);
     (void)wlh_coproc_wifi_connected(&sim->core, match);
     return 0;
 }
 
 static int wifi_do_disconnect(void *context) {
     simulator_t *sim = context;
+    WLH_LOGI("coproc-sim", "wifi disconnect");
     (void)wlh_coproc_wifi_disconnected(&sim->core, 1u, true);
     return 0;
 }
@@ -383,6 +424,13 @@ static int send_runtime(simulator_t *sim) {
     memcpy(info.implementation_version, "0.1.0", sizeof("0.1.0"));
     if (!pb_encode(&stream, wlh_sim_v1_SimRuntimeInfo_fields, &info))
         return -1;
+    WLH_LOGD(
+        "coproc-sim",
+        "runtime info link_state=%d tx=%lu rx=%lu",
+        (int)info.link_state,
+        (unsigned long)info.tx_frames,
+        (unsigned long)info.rx_frames
+    );
     return wlh_sim_write_record(
         sim->fd,
         WLH_SIM_RECORD_RUNTIME_INFO,
@@ -406,6 +454,13 @@ static int handle_fault(simulator_t *sim, const uint8_t *payload, size_t size) {
         request.count > 1024u || request.duration_ms > 60000u ||
         request.parameters.size > 256u)
         return -1;
+    WLH_LOGI(
+        "coproc-sim",
+        "fault request id=%lu kind=%d channel=%u",
+        (unsigned long)request.request_id,
+        (int)request.fault,
+        (unsigned)request.channel
+    );
     switch (request.fault) {
     case wlh_sim_v1_SimFaultKind_SIM_FAULT_KIND_SESSION_CHANGE:
     case wlh_sim_v1_SimFaultKind_SIM_FAULT_KIND_PEER_RESET:
@@ -520,37 +575,57 @@ int main(int argc, char **argv) {
             else if (strcmp(scenario, "happy") != 0)
                 return 2;
         } else {
-            fprintf(stderr, "invalid argument: %s\n", argv[i]);
+            WLH_LOGE("coproc-sim", "invalid argument: %s", argv[i]);
             return 2;
         }
     }
 
     if (use_real_backend) {
         if (scenario_given)
-            fprintf(
-                stderr, "warning: --scenario is ignored with --backend real\n"
-            );
+            WLH_LOGW("coproc-sim", "--scenario is ignored with --backend real");
 #ifndef WLH_SIM_HAVE_REAL_BACKEND
-        fprintf(stderr, "real backend is not available on this platform\n");
+        WLH_LOGE("coproc-sim", "real backend is not available on this platform");
         return 2;
 #endif
     }
     sim.backend_delay_ms = use_real_backend ? 0u : 25u;
 
+    WLH_LOG_INIT();
+    WLH_LOGI(
+        "coproc-sim",
+        "starting backend=%s scenario=%s monitor_interval_ms=%u",
+        use_real_backend ? "real" : "mock",
+        scenario_name(sim.scenario),
+        sim.monitor_interval_ms
+    );
+
     if (ipc_spec == NULL || sim.monitor_interval_ms == 0u ||
-        sim.monitor_interval_ms > 60000u || (sim.fd = open_unix(ipc_spec)) < 0)
+        sim.monitor_interval_ms > 60000u || (sim.fd = open_unix(ipc_spec)) < 0) {
+        WLH_LOGE("coproc-sim", "IPC endpoint open failed");
         return 2;
+    }
 
     if (wlh_sim_write_hello(sim.fd, &local) != 0 ||
-        wlh_sim_read_hello(sim.fd, &peer) != 0)
+        wlh_sim_read_hello(sim.fd, &peer) != 0) {
+        WLH_LOGE("coproc-sim", "hello exchange failed");
         return 3;
-    if (peer.role != WLH_SIM_ROLE_HOST && peer.role != WLH_SIM_ROLE_MANAGER)
+    }
+    if (peer.role != WLH_SIM_ROLE_HOST && peer.role != WLH_SIM_ROLE_MANAGER) {
+        WLH_LOGE("coproc-sim", "unexpected peer role %d", (int)peer.role);
         return 3;
+    }
     sim.max_record_size = peer.max_record_size < local.max_record_size
                               ? peer.max_record_size
                               : local.max_record_size;
     sim.sideband = peer.role == WLH_SIM_ROLE_MANAGER &&
                    (peer.flags & local.flags & WLH_SIM_FLAG_SIDEBAND) != 0u;
+    WLH_LOGI(
+        "coproc-sim",
+        "hello ok peer=%s max_record=%u sideband=%d",
+        role_name(peer.role),
+        sim.max_record_size,
+        sim.sideband
+    );
 
     wlh_posix_osal_init(&sim.posix_osal);
     sim.osal = wlh_posix_osal_ops(&sim.posix_osal);
@@ -584,7 +659,7 @@ int main(int argc, char **argv) {
     if (use_real_backend) {
         sim.real_backend = wlh_wifi_backend_real_create(&sim.core);
         if (sim.real_backend == NULL) {
-            fprintf(stderr, "failed to create real WiFi backend\n");
+            WLH_LOGE("coproc-sim", "failed to create real WiFi backend");
             return 4;
         }
         wlh_wifi_backend_real_fill_ops(sim.real_backend, &sim.backend);

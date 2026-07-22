@@ -8,16 +8,38 @@ set(BUILD_TESTING OFF)
 add_subdirectory(core/coproc-core core-coproc-build EXCLUDE_FROM_ALL)
 set(BUILD_TESTING "${WLH_SIM_BUILD_TESTING}")
 wlh_common_enable_posix_osal(BUILD_TESTING "${WLH_SIM_BUILD_TESTING}")
+wlh_common_enable_log(BACKEND EASYLOGGER)
 target_compile_definitions(wlh_coproc_core PUBLIC WLH_ENABLE_TEST_HOOKS)
+
+add_library(wlh_easylogger STATIC
+    third_party/easylogger/easylogger/src/elog.c
+    third_party/easylogger/easylogger/src/elog_utils.c
+    third_party/easylogger_port/elog_port.c)
+add_library(wlh::easylogger ALIAS wlh_easylogger)
+target_include_directories(wlh_easylogger PUBLIC
+    third_party/easylogger_port
+    third_party/easylogger/easylogger/inc)
+target_compile_features(wlh_easylogger PUBLIC c_std_99)
+set_target_properties(wlh_easylogger PROPERTIES
+    C_EXTENSIONS OFF POSITION_INDEPENDENT_CODE ON)
+if(CMAKE_C_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(wlh_easylogger PRIVATE -Wall -Wextra -Werror)
+endif()
+
+# The core log backend needs EasyLogger headers whenever a translation unit
+# includes wlh/log.h with the EASYLOGGER backend selected.
+target_link_libraries(wlh_log_backend PUBLIC wlh::easylogger)
 
 add_library(wlh_sim_ipc STATIC src/ipc.c)
 target_include_directories(wlh_sim_ipc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(wlh_sim_ipc PUBLIC c_std_99)
+target_link_libraries(wlh_sim_ipc PUBLIC wlh::log)
 set_target_properties(wlh_sim_ipc PROPERTIES C_EXTENSIONS OFF)
 
 add_executable(wlh-coproc-macos-sim src/main.c)
 target_link_libraries(wlh-coproc-macos-sim PRIVATE
-  wlh_coproc_core wlh_sim_nanopb wlh_sim_ipc wlh::posix_osal Threads::Threads)
+  wlh_coproc_core wlh_sim_nanopb wlh_sim_ipc wlh::posix_osal wlh::log
+  wlh::easylogger Threads::Threads)
 target_compile_features(wlh-coproc-macos-sim PRIVATE c_std_11)
 
 if(APPLE)
