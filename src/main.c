@@ -201,9 +201,15 @@ static int wifi_do_initialize(void *context) {
 static int wifi_do_scan(void *context, uint32_t scan_id) {
     simulator_t *sim = context;
     size_t i;
-    WLH_LOGI("coproc-sim", "wifi scan started scan_id=%lu", (unsigned long)scan_id);
+    WLH_LOGI(
+        "coproc-sim", "wifi scan started scan_id=%lu", (unsigned long)scan_id
+    );
     if (sim->scan_failure) {
-        WLH_LOGW("coproc-sim", "wifi scan forced failure scan_id=%lu", (unsigned long)scan_id);
+        WLH_LOGW(
+            "coproc-sim",
+            "wifi scan forced failure scan_id=%lu",
+            (unsigned long)scan_id
+        );
         (void)wlh_coproc_wifi_scan_completed(&sim->core, scan_id, 0, false);
         return -1;
     }
@@ -211,7 +217,11 @@ static int wifi_do_scan(void *context, uint32_t scan_id) {
         (void)wlh_coproc_wifi_scan_result(&sim->core, scan_id, &networks[i]);
         sim->osal.sleep_ms(sim->osal.context, 10u);
     }
-    WLH_LOGI("coproc-sim", "wifi scan completed scan_id=%lu results=3", (unsigned long)scan_id);
+    WLH_LOGI(
+        "coproc-sim",
+        "wifi scan completed scan_id=%lu results=3",
+        (unsigned long)scan_id
+    );
     (void)wlh_coproc_wifi_scan_completed(&sim->core, scan_id, 3, false);
     return 0;
 }
@@ -264,7 +274,12 @@ static int wifi_do_connect(
         (void)wlh_coproc_wifi_disconnected(&sim->core, 3u, false);
         return -1;
     }
-    WLH_LOGI("coproc-sim", "wifi connected to %.*s", (int)match->ssid_size, match->ssid);
+    WLH_LOGI(
+        "coproc-sim",
+        "wifi connected to %.*s",
+        (int)match->ssid_size,
+        match->ssid
+    );
     (void)wlh_coproc_wifi_connected(&sim->core, match);
     return 0;
 }
@@ -584,7 +599,9 @@ int main(int argc, char **argv) {
         if (scenario_given)
             WLH_LOGW("coproc-sim", "--scenario is ignored with --backend real");
 #ifndef WLH_SIM_HAVE_REAL_BACKEND
-        WLH_LOGE("coproc-sim", "real backend is not available on this platform");
+        WLH_LOGE(
+            "coproc-sim", "real backend is not available on this platform"
+        );
         return 2;
 #endif
     }
@@ -600,7 +617,8 @@ int main(int argc, char **argv) {
     );
 
     if (ipc_spec == NULL || sim.monitor_interval_ms == 0u ||
-        sim.monitor_interval_ms > 60000u || (sim.fd = open_unix(ipc_spec)) < 0) {
+        sim.monitor_interval_ms > 60000u ||
+        (sim.fd = open_unix(ipc_spec)) < 0) {
         WLH_LOGE("coproc-sim", "IPC endpoint open failed");
         return 2;
     }

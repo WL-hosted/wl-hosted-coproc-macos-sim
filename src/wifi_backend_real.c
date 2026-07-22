@@ -126,7 +126,9 @@ static int real_connect(
     );
     if (status == 0)
         return 0;
-    WLH_LOGW("coproc-sim", "real backend connect failed status=%ld", (long)status);
+    WLH_LOGW(
+        "coproc-sim", "real backend connect failed status=%ld", (long)status
+    );
     (void)wlh_coproc_wifi_disconnected(
         backend->core, status == -2 ? 2u : 3u, false
     );

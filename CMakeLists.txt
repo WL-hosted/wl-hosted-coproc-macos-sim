@@ -39,7 +39,7 @@ set_target_properties(wlh_sim_ipc PROPERTIES C_EXTENSIONS OFF)
 add_executable(wlh-coproc-macos-sim src/main.c)
 target_link_libraries(wlh-coproc-macos-sim PRIVATE
   wlh_coproc_core wlh_sim_nanopb wlh_sim_ipc wlh::posix_osal wlh::log
-  wlh::easylogger Threads::Threads)
+  Threads::Threads)
 target_compile_features(wlh-coproc-macos-sim PRIVATE c_std_11)
 
 if(APPLE)
