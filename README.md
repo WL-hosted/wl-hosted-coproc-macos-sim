@@ -1,6 +1,6 @@
 # WL-hosted Coprocessor macOS Simulator
 
-`wl-hosted-coproc-macos-sim` 是 WL-hosted 协处理器（Coprocessor）的 macOS / POSIX 模拟器。它基于嵌套的 `wl-hosted-coproc-core` 构建，在桌面端模拟一个带 Wi-Fi 的协处理器，用于验证标准协议栈、Wi-Fi 状态机以及与 Host 模拟器或 Sim Manager 的端到端交互。
+`wl-hosted-coproc-macos-sim` 是 WL-hosted 协处理器（Coprocessor）的 macOS / POSIX 模拟器。它基于 `core/coproc-core` 构建，在桌面端模拟一个带 Wi-Fi 的协处理器，用于验证标准协议栈、Wi-Fi 状态机以及与 Host 模拟器或 Sim Manager 的端到端交互。
 
 本仓库不是生产固件，仅用于开发与 CI 测试；所有与真实 MCU 相关的时序、队列、缓冲区约束都通过 `wlh::osal` 抽象层表达，因此它也是 Core OSAL 可移植性的一个集成验证点。
 
@@ -9,13 +9,14 @@
 在 WL-hosted 多仓库工作区中，各仓库的职责边界如下：
 
 ```text
-wl-hosted-coproc-macos-sim -> wl-hosted-coproc-core -> wl-hosted-protocol
-                                                       -> wl-hosted-common
+wl-hosted-coproc-macos-sim -> wl-hosted-core/coproc-core
+                             -> wl-hosted-core/protocol
+                             -> wl-hosted-core/common
 ```
 
-- `wl-hosted-coproc-core`：平台无关的 Coproc Core，负责标准 WL-hosted v1 协议状态机（Hello、Session、Credit、Channel、Heartbeat 等）。
-- `wl-hosted-protocol`：标准 Wire/RPC codec 以及 Simulator IPC sideband protobuf（`sim_sideband.pb.h/.c`）。
-- `wl-hosted-common`：共享平台契约，OSAL 唯一来源位于 `osal/include/wlh/osal.h`；本仓库显式启用 `wlh::posix_osal`。
+- `core/coproc-core`：平台无关的 Coproc Core，负责标准 WL-hosted v1 协议状态机（Hello、Session、Credit、Channel、Heartbeat 等）。
+- `core/protocol`：标准 Wire/RPC codec 以及 Simulator IPC sideband protobuf（`sim_sideband.pb.h/.c`）。
+- `core/common`：共享平台契约，OSAL 唯一来源位于 `osal/include/wlh/osal.h`；本仓库显式启用 `wlh::posix_osal`。
 
 本仓库的角色固定为 `SIM_ROLE_COPROC`。当对端是 Manager 且双方都声明 `SIDEBAND` 时，会启用 sideband 运行时/故障注入通道；与 Host Sim 直连时同样根据 Hello 中的 sideband 标志决定是否启用。
 
@@ -225,16 +226,15 @@ ctest --test-dir build-debug --output-on-failure
 
 本目录是独立 Git 仓库。修改后应单独提交，不要在工作区根目录执行全局 `git` 操作。
 
-本仓库依赖的 `coproc-core` 子模块信息记录在：
+本仓库依赖的 `core` 子模块信息记录在：
 
 - `.gitmodules`
-- `coproc-core/` gitlink
+- `core/` gitlink
 - `SUBMODULE.lock`
 
 更新子模块后应同步 `SUBMODULE.lock` 中的 commit，并确保：
 
-- `coproc-core.commit` 与 gitlink 一致。
-- `protocol.transitive.commit` 和 `common.transitive.commit` 反映 coproc-core 嵌套依赖的实际 commit。
+- `core.commit` 与 gitlink 一致。
 
 完成后执行：
 
