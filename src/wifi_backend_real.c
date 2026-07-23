@@ -83,9 +83,11 @@ static void forward_connected_bss(
     (void)wlh_coproc_wifi_connected(forward->core, &bss);
 }
 
-static int real_initialize(void *context) {
+static int real_initialize(void *context, uint32_t interface_flags) {
     wlh_wifi_backend_real_t *backend = context;
-    int32_t status = wlh_real_swift_initialize(backend->swift);
+    int32_t status;
+    (void)interface_flags;
+    status = wlh_real_swift_initialize(backend->swift);
     WLH_LOGI("coproc-sim", "real backend initialize status=%ld", (long)status);
     return status == 0 ? 0 : -1;
 }

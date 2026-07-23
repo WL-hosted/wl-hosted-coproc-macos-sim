@@ -19,7 +19,7 @@ typedef enum wlh_wifi_backend_fault {
 typedef struct wlh_wifi_backend {
     void *context;
     /* Returns the status passed to wlh_coproc_wifi_initialized. */
-    int (*initialize)(void *context);
+    int (*initialize)(void *context, uint32_t interface_flags);
     int (*scan)(void *context, uint32_t scan_id);
     int (*connect)(void *context, const wlh_coproc_wifi_connect_t *request);
     int (*disconnect)(void *context);
