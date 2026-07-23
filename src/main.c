@@ -85,9 +85,9 @@ static const uint8_t ssid_wpa2[] = "WPA2Net";
 static const uint8_t ssid_wpa3[] = "WPA3Net";
 // clang-format off
 static const wlh_coproc_bss_t networks[3] = {
-    {ssid_open, 7, {0x02, 0, 0, 0, 0, 1}, 1, 1, -35},
-    {ssid_wpa2, 7, {0x02, 0, 0, 0, 0, 2}, 4, 6, -48},
-    {ssid_wpa3, 7, {0x02, 0, 0, 0, 0, 3}, 6, 36, -57},
+    {ssid_open, 7, {0x02, 0, 0, 0, 0, 1}, {0x02, 0, 0, 0, 0, 0x10}, 1, 1, -35},
+    {ssid_wpa2, 7, {0x02, 0, 0, 0, 0, 2}, {0x02, 0, 0, 0, 0, 0x10}, 4, 6, -48},
+    {ssid_wpa3, 7, {0x02, 0, 0, 0, 0, 3}, {0x02, 0, 0, 0, 0, 0x10}, 6, 36, -57},
 };
 // clang-format on
 

@@ -51,7 +51,7 @@ static void forward_bss(
     int32_t rssi_dbm
 ) {
     const bss_forward_t *forward = cb_context;
-    wlh_coproc_bss_t bss;
+    wlh_coproc_bss_t bss = {0};
     bss.ssid = ssid;
     bss.ssid_size = ssid_size;
     memcpy(bss.bssid, bssid, sizeof(bss.bssid));
@@ -71,10 +71,12 @@ static void forward_connected_bss(
     int32_t rssi_dbm
 ) {
     const bss_forward_t *forward = cb_context;
-    wlh_coproc_bss_t bss;
+    static const uint8_t interface_mac[6] = {0x02, 0, 0, 0, 0, 0x11};
+    wlh_coproc_bss_t bss = {0};
     bss.ssid = ssid;
     bss.ssid_size = ssid_size;
     memcpy(bss.bssid, bssid, sizeof(bss.bssid));
+    memcpy(bss.interface_mac, interface_mac, sizeof(bss.interface_mac));
     bss.security = security;
     bss.channel = channel;
     bss.rssi_dbm = rssi_dbm;
