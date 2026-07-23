@@ -75,6 +75,7 @@ typedef enum wifi_job_kind {
 typedef struct wifi_job {
     wifi_job_kind_t kind;
     uint32_t operation_id;
+    uint32_t interface_flags;
     uint32_t scan_id;
     wlh_coproc_wifi_connect_t connect;
 } wifi_job_t;
@@ -193,8 +194,11 @@ static void ethernet_echo(void *context, const uint8_t *frame, size_t size) {
     (void)wlh_coproc_ethernet_sta_send(&sim->core, frame, size);
 }
 
-static int wifi_do_initialize(void *context) {
+static int wifi_do_initialize(
+    void *context, uint32_t interface_flags
+) {
     simulator_t *sim = context;
+    (void)interface_flags;
     return atomic_load(&sim->buffer_oom_remaining) != 0u ? -1 : 0;
 }
 
@@ -315,11 +319,14 @@ static int wifi_submit_job(simulator_t *sim, const wifi_job_t *job) {
     return 0;
 }
 
-static int wifi_initialize(void *context, uint32_t operation_id) {
+static int wifi_initialize(
+    void *context, uint32_t operation_id, uint32_t interface_flags
+) {
     wifi_job_t job;
     memset(&job, 0, sizeof(job));
     job.kind = WIFI_JOB_INITIALIZE;
     job.operation_id = operation_id;
+    job.interface_flags = interface_flags;
     return wifi_submit_job(context, &job);
 }
 
@@ -364,7 +371,9 @@ static void wifi_worker(void *argument) {
         }
         sim->osal.sleep_ms(sim->osal.context, sim->backend_delay_ms);
         if (job->kind == WIFI_JOB_INITIALIZE) {
-            int status = sim->backend.initialize(sim->backend.context);
+            int status = sim->backend.initialize(
+                sim->backend.context, job->interface_flags
+            );
             (void)wlh_coproc_wifi_initialized(
                 &sim->core, job->operation_id, status
             );
