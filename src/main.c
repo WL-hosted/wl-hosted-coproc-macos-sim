@@ -194,9 +194,7 @@ static void ethernet_echo(void *context, const uint8_t *frame, size_t size) {
     (void)wlh_coproc_ethernet_sta_send(&sim->core, frame, size);
 }
 
-static int wifi_do_initialize(
-    void *context, uint32_t interface_flags
-) {
+static int wifi_do_initialize(void *context, uint32_t interface_flags) {
     simulator_t *sim = context;
     (void)interface_flags;
     return atomic_load(&sim->buffer_oom_remaining) != 0u ? -1 : 0;
